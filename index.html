@@ -279,13 +279,12 @@
       color: var(--text-muted);
     }
 
-    /* Download button */
-    #download-btn {
+    /* Download / action buttons */
+    .action-btn {
       display: block;
       width: 100%;
-      margin-top: 20px;
+      margin-top: 12px;
       padding: 14px;
-      background: var(--success);
       color: #fff;
       border: none;
       border-radius: var(--radius);
@@ -296,7 +295,26 @@
       text-decoration: none;
       text-align: center;
     }
+    #download-btn { background: var(--success); }
     #download-btn:hover { background: #16a34a; }
+    #share-btn { background: #0ea5e9; }
+    #share-btn:hover { background: #38bdf8; }
+    #share-btn:disabled { background: var(--surface2); color: var(--text-muted); cursor: not-allowed; }
+
+    .preview-card .save-btn {
+      display: block;
+      width: calc(100% - 16px);
+      margin: 0 8px 8px;
+      padding: 6px;
+      background: #0ea5e9;
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .preview-card .save-btn:hover { background: #38bdf8; }
 
     /* File info bar */
     #file-info {
@@ -411,7 +429,8 @@
   <div id="preview-section">
     <h3 id="preview-heading">Preview</h3>
     <div id="preview-grid"></div>
-    <a id="download-btn" href="#" download>Download ZIP</a>
+    <a id="download-btn" class="action-btn" href="#" download>Download ZIP</a>
+    <button id="share-btn" class="action-btn" style="display:none">Save to Photos</button>
   </div>
 </div>
 
@@ -523,6 +542,7 @@
       const baseName = currentFile.name.replace(/\.pdf$/i, '');
 
       const previews = [];
+      const shareFiles = [];
 
       for (let i = 1; i <= numPages; i++) {
         progressLabel.textContent = `Rendering page ${i} of ${numPages}…`;
@@ -545,13 +565,17 @@
           : `${baseName}_page${String(i).padStart(3, '0')}.${ext}`;
 
         zip.file(fileName, base64, { base64: true });
-        previews.push({ dataUrl, label: `Page ${i}` });
+
+        const blob = dataUrlToBlob(dataUrl);
+        shareFiles.push(new File([blob], fileName, { type: mimeType }));
+        previews.push({ dataUrl, fileName, label: `Page ${i}` });
 
         progressBar.style.width = `${(i / numPages) * 100}%`;
       }
 
-      // Show previews
-      for (const { dataUrl, label } of previews) {
+      // Show previews with individual save buttons
+      const canShare = !!(navigator.canShare && navigator.canShare({ files: shareFiles }));
+      for (const { dataUrl, fileName, label } of previews) {
         const card = document.createElement('div');
         card.className = 'preview-card';
         const img = document.createElement('img');
@@ -561,6 +585,15 @@
         lbl.textContent = label;
         card.appendChild(img);
         card.appendChild(lbl);
+        if (canShare && numPages > 1) {
+          const saveBtn = document.createElement('button');
+          saveBtn.className = 'save-btn';
+          saveBtn.textContent = 'Save to Photos';
+          const blob = dataUrlToBlob(dataUrl);
+          const file = new File([blob], fileName, { type: mimeType });
+          saveBtn.onclick = () => navigator.share({ files: [file] });
+          card.appendChild(saveBtn);
+        }
         previewGrid.appendChild(card);
       }
 
@@ -568,9 +601,9 @@
       progressBar.style.width = '100%';
 
       const dlBtn = document.getElementById('download-btn');
+      const shareBtn = document.getElementById('share-btn');
 
       if (numPages === 1) {
-        // Single page: download the image directly (not wrapped in a ZIP)
         const blob = dataUrlToBlob(previews[0].dataUrl);
         dlBtn.href = URL.createObjectURL(blob);
         dlBtn.download = `${baseName}.${ext}`;
@@ -580,6 +613,23 @@
         dlBtn.href = URL.createObjectURL(zipBlob);
         dlBtn.download = `${baseName}_images.zip`;
         dlBtn.textContent = `Download ZIP (${numPages} pages)`;
+      }
+
+      // Show Save to Photos button if Web Share API supports files
+      if (canShare) {
+        shareBtn.style.display = 'block';
+        const label = numPages === 1 ? 'Save to Photos' : `Save All ${numPages} Pages to Photos`;
+        shareBtn.textContent = label;
+        shareBtn.onclick = async () => {
+          try {
+            shareBtn.disabled = true;
+            await navigator.share({ files: shareFiles, title: baseName });
+          } catch (e) {
+            if (e.name !== 'AbortError') alert('Could not share: ' + e.message);
+          } finally {
+            shareBtn.disabled = false;
+          }
+        };
       }
 
       document.getElementById('preview-heading').textContent =
