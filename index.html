@@ -405,8 +405,8 @@
       <label>Resolution / DPI</label>
       <select id="scale-select">
         <option value="1">1× — Low (72 DPI)</option>
-        <option value="2" selected>2× — Medium (144 DPI)</option>
-        <option value="3">3× — High (216 DPI)</option>
+        <option value="2">2× — Medium (144 DPI)</option>
+        <option value="3" selected>3× — High (216 DPI)</option>
         <option value="4">4× — Ultra (288 DPI)</option>
       </select>
     </div>
@@ -435,14 +435,16 @@
 </div>
 
 <!-- PDF.js via CDN -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script type="module">
+  import * as pdfjsLib from 'https://cdn.jsdelivr.net/npm/pdfjs-dist@6.5.438/build/pdf.min.mjs';
+  pdfjsLib.GlobalWorkerOptions.workerSrc =
+    'https://cdn.jsdelivr.net/npm/pdfjs-dist@6.5.438/build/pdf.worker.min.mjs';
+  window.pdfjsLib = pdfjsLib;
+</script>
 <!-- JSZip via CDN -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 
 <script>
-  pdfjsLib.GlobalWorkerOptions.workerSrc =
-    'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-
   let currentFile = null;
   let currentFormat = 'jpg';
 
@@ -548,14 +550,18 @@
         progressLabel.textContent = `Rendering page ${i} of ${numPages}…`;
 
         const page = await pdf.getPage(i);
-        const viewport = page.getViewport({ scale });
+        // iOS Safari caps canvas at ~16.7M px and silently downsamples beyond it (blurry)
+        const base = page.getViewport({ scale: 1 });
+        const MAX_PIXELS = 16000000;
+        const pageScale = Math.min(scale, Math.sqrt(MAX_PIXELS / (base.width * base.height)));
+        const viewport = page.getViewport({ scale: pageScale });
 
         const canvas = document.createElement('canvas');
-        canvas.width = viewport.width;
-        canvas.height = viewport.height;
+        canvas.width = Math.floor(viewport.width);
+        canvas.height = Math.floor(viewport.height);
         const ctx = canvas.getContext('2d');
 
-        await page.render({ canvasContext: ctx, viewport }).promise;
+        await page.render({ canvas, canvasContext: ctx, viewport }).promise;
 
         const dataUrl = canvas.toDataURL(mimeType, format === 'jpg' ? quality : undefined);
         const base64 = dataUrl.split(',')[1];
@@ -574,7 +580,7 @@
       }
 
       // Show previews with individual save buttons
-      const canShare = !!(navigator.canShare && navigator.canShare({ files: shareFiles }));
+      const canShare = !!(navigator.canShare && navigator.canShare({ files: [shareFiles[0]] }));
       for (const { dataUrl, fileName, label } of previews) {
         const card = document.createElement('div');
         card.className = 'preview-card';
@@ -585,10 +591,10 @@
         lbl.textContent = label;
         card.appendChild(img);
         card.appendChild(lbl);
-        if (canShare && numPages > 1) {
+        if (canShare) {
           const saveBtn = document.createElement('button');
           saveBtn.className = 'save-btn';
-          saveBtn.textContent = 'Save to Photos';
+          saveBtn.textContent = 'Save Image';
           const blob = dataUrlToBlob(dataUrl);
           const file = new File([blob], fileName, { type: mimeType });
           saveBtn.onclick = () => navigator.share({ files: [file] });
@@ -618,7 +624,7 @@
       // Show Save to Photos button if Web Share API supports files
       if (canShare) {
         shareBtn.style.display = 'block';
-        const label = numPages === 1 ? 'Save to Photos' : `Save All ${numPages} Pages to Photos`;
+        const label = numPages === 1 ? 'Save as Image' : `Save All ${numPages} Pages as Images`;
         shareBtn.textContent = label;
         shareBtn.onclick = async () => {
           try {
